@@ -18,6 +18,7 @@
 
 package com.graphhopper.http;
 
+import com.conveyal.gtfs.GTFSFeed;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.BeanDescription;
 import com.fasterxml.jackson.databind.SerializationConfig;
@@ -33,16 +34,18 @@ import com.graphhopper.http.health.GraphHopperHealthCheck;
 import com.graphhopper.http.health.GraphHopperStorageHealthCheck;
 import com.graphhopper.isochrone.algorithm.DelaunayTriangulationIsolineBuilder;
 import com.graphhopper.jackson.Jackson;
-import com.graphhopper.reader.gtfs.GraphHopperGtfs;
-import com.graphhopper.reader.gtfs.GtfsStorage;
-import com.graphhopper.reader.gtfs.PtFlagEncoder;
+import com.graphhopper.reader.gtfs.*;
+import com.graphhopper.reader.osm.OSMReader;
 import com.graphhopper.resources.*;
+import com.graphhopper.routing.subnetwork.PrepareRoutingSubnetworks;
 import com.graphhopper.routing.util.CarFlagEncoder;
 import com.graphhopper.routing.util.EncodingManager;
 import com.graphhopper.routing.util.FootFlagEncoder;
 import com.graphhopper.storage.GHDirectory;
 import com.graphhopper.storage.GraphHopperStorage;
+import com.graphhopper.storage.RAMDirectory;
 import com.graphhopper.storage.index.LocationIndex;
+import com.graphhopper.storage.index.LocationIndexTree;
 import com.graphhopper.util.CmdArgs;
 import com.graphhopper.util.TranslationMap;
 import io.dropwizard.ConfiguredBundle;
@@ -54,10 +57,14 @@ import org.glassfish.hk2.utilities.binding.AbstractBinder;
 
 import javax.inject.Inject;
 import javax.ws.rs.ext.WriterInterceptor;
+import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.zip.ZipFile;
 
 public class GraphHopperBundle implements ConfiguredBundle<GraphHopperBundleConfiguration> {
 
@@ -200,9 +207,75 @@ public class GraphHopperBundle implements ConfiguredBundle<GraphHopperBundleConf
 
         if (configuration.getGraphHopperConfiguration().has("gtfs.file")) {
             // switch to different API implementation when using Pt
-            runPtGraphHopper(configuration.getGraphHopperConfiguration(), environment);
+            if (configuration.getGraphHopperConfiguration().has("use.gtfsForCar")) {
+                runRegularGraphHopperWithGTFS(configuration.getGraphHopperConfiguration(), environment);
+            } else {
+                runPtGraphHopper(configuration.getGraphHopperConfiguration(), environment);
+            }
         } else {
             runRegularGraphHopper(configuration.getGraphHopperConfiguration(), environment);
+        }
+    }
+
+    private void runRegularGraphHopperWithGTFS(CmdArgs graphHopperConfiguration, Environment environment) {
+        final GraphHopperManaged graphHopperManaged = new GraphHopperManaged(graphHopperConfiguration, environment.getObjectMapper());
+        environment.lifecycle().manage(graphHopperManaged);
+
+
+        //relevent details of GTFS feed
+        final PtFlagEncoder ptFlagEncoder = new PtFlagEncoder();
+        final GHDirectory ghDirectory = GraphHopperGtfs.createGHDirectory(graphHopperConfiguration.get("graph.location", "target/tmp"));
+        final GtfsStorage gtfsStorage = GraphHopperGtfs.createGtfsStorage();
+        final EncodingManager encodingManager = new EncodingManager.Builder(graphHopperConfiguration.getInt("graph.bytes_for_flags", 8)).add(ptFlagEncoder).add(new FootFlagEncoder()).add(new CarFlagEncoder()).build();
+
+        updateGtfsStorage(ghDirectory, encodingManager, ptFlagEncoder, gtfsStorage,
+                graphHopperConfiguration.has("gtfs.file") ? Arrays.asList(graphHopperConfiguration.get("gtfs.file", "").split(",")) : Collections.emptyList());
+
+
+        environment.jersey().register(new AbstractBinder() {
+            @Override
+            protected void configure() {
+                bind(graphHopperConfiguration).to(CmdArgs.class);
+                bind(graphHopperManaged).to(GraphHopperManaged.class);
+                bind(graphHopperManaged.getGraphHopper()).to(GraphHopper.class);
+                bind(graphHopperManaged.getGraphHopper()).to(GraphHopperAPI.class);
+
+                bind(gtfsStorage).to(GtfsStorage.class);
+
+                bindFactory(HasElevation.class).to(Boolean.class).named("hasElevation");
+                bindFactory(LocationIndexFactory.class).to(LocationIndex.class);
+                bindFactory(TranslationMapFactory.class).to(TranslationMap.class);
+                bindFactory(EncodingManagerFactory.class).to(EncodingManager.class);
+                bindFactory(GraphHopperStorageFactory.class).to(GraphHopperStorage.class);
+                bindFactory(RasterHullBuilderFactory.class).to(DelaunayTriangulationIsolineBuilder.class);
+            }
+        });
+
+        if (graphHopperConfiguration.getBool("web.change_graph.enabled", false)) {
+            environment.jersey().register(ChangeGraphResource.class);
+        }
+
+        environment.jersey().register(MVTResource.class);
+        environment.jersey().register(NearestResource.class);
+        environment.jersey().register(RouteResource.class);
+        environment.jersey().register(IsochroneResource.class);
+        environment.jersey().register(SPTResource.class);
+        environment.jersey().register(I18NResource.class);
+        environment.jersey().register(InfoResource.class);
+        environment.healthChecks().register("graphhopper", new GraphHopperHealthCheck(graphHopperManaged.getGraphHopper()));
+    }
+
+    private void updateGtfsStorage(GHDirectory directory, EncodingManager encodingManager, PtFlagEncoder ptFlagEncoder, GtfsStorage gtfsStorage, Collection<String> gtfsFiles) {
+        GraphHopperStorage graphHopperStorage = new GraphHopperStorage(directory, encodingManager, false, gtfsStorage);
+        graphHopperStorage.create(1000);
+
+        int id = 0;
+        for (String gtfsFile : gtfsFiles) {
+            try {
+                ((GtfsStorage) graphHopperStorage.getExtension()).loadGtfsFromFile("gtfs_" + id++, new ZipFile(gtfsFile));
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 

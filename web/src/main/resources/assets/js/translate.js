@@ -151,6 +151,13 @@ module.exports.createTimeString = function (time) {
     return resTimeStr;
 };
 
+// module.exports.createProbString = function (prob) {
+//     var str = "";
+//     str += prob;
+//
+//     return str;
+// };
+
 module.exports.tr = tr;
 module.exports.tr2 = tr2;
 

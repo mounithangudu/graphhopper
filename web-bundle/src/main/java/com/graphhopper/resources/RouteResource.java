@@ -17,17 +17,24 @@
  */
 package com.graphhopper.resources;
 
+import com.conveyal.gtfs.GTFSFeed;
+import com.conveyal.gtfs.model.Stop;
+import com.conveyal.gtfs.model.StopTime;
 import com.graphhopper.GHRequest;
 import com.graphhopper.GHResponse;
 import com.graphhopper.GraphHopperAPI;
 import com.graphhopper.MultiException;
 import com.graphhopper.http.WebHelper;
+import com.graphhopper.reader.gtfs.GtfsStorage;
 import com.graphhopper.routing.util.HintsMap;
 import com.graphhopper.util.Constants;
 import com.graphhopper.util.InstructionList;
+import com.graphhopper.util.Parameters;
 import com.graphhopper.util.StopWatch;
 import com.graphhopper.util.gpx.GpxFromInstructions;
 import com.graphhopper.util.shapes.GHPoint;
+import org.mapdb.BTreeMap;
+import org.mapdb.Fun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,10 +44,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.*;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static com.graphhopper.util.Parameters.Details.PATH_DETAILS;
 import static com.graphhopper.util.Parameters.Routing.*;
@@ -60,10 +64,17 @@ public class RouteResource {
     private final GraphHopperAPI graphHopper;
     private final Boolean hasElevation;
 
+    private final GtfsStorage gtfsStorage;
+    boolean initialized;
+
     @Inject
-    public RouteResource(GraphHopperAPI graphHopper, @Named("hasElevation") Boolean hasElevation) {
+    public RouteResource(GraphHopperAPI graphHopper, @Named("hasElevation") Boolean hasElevation,
+                         GtfsStorage gtfsStorage
+    ) {
         this.graphHopper = graphHopper;
         this.hasElevation = hasElevation;
+
+        this.gtfsStorage = gtfsStorage;
     }
 
     @GET
@@ -91,10 +102,15 @@ public class RouteResource {
             @QueryParam("gpx.track") @DefaultValue("true") boolean withTrack,
             @QueryParam("gpx.waypoints") @DefaultValue("false") boolean withWayPoints,
             @QueryParam("gpx.trackname") @DefaultValue("GraphHopper Track") String trackName,
+            @QueryParam(Parameters.PT.EARLIEST_DEPARTURE_TIME) String departureTimeString,
             @QueryParam("gpx.millis") String timeString) {
         boolean writeGPX = "gpx".equalsIgnoreCase(type);
         instructions = writeGPX || instructions;
 
+        System.out.println();
+        System.out.println();
+        System.out.print("printing date: ");
+        System.out.println(departureTimeString);
         StopWatch sw = new StopWatch().start();
 
         if (requestPoints.isEmpty())
@@ -134,6 +150,29 @@ public class RouteResource {
                 put(CALC_POINTS, calcPoints).
                 put(INSTRUCTIONS, instructions).
                 put(WAY_POINT_MAX_DISTANCE, minPathPrecision);
+
+        assert gtfsStorage != null;
+        //check for necissity
+
+        if (!initialized){
+            for (GTFSFeed feed: gtfsStorage.getGtfsFeeds().values()){
+                Map<Double[], List<Integer>> stopTimes = new HashMap<>();
+                BTreeMap<Fun.Tuple2, StopTime> stopTimesMap = feed.stop_times;
+                for (StopTime stopTime: stopTimesMap.values()){
+                    String stop_id = stopTime.stop_id;
+                    int stop_time = stopTime.arrival_time;
+                    Stop stop = feed.stops.get(stop_id);
+                    Double[] key = new Double[]{stop.stop_lat, stop.stop_lon};
+                    List<Integer> value =  stopTimes.getOrDefault(key, new ArrayList<>());
+                    value.add(stop_time);
+                    stopTimes.put(key, value);
+                }
+                System.out.println("Stop Time Size: " + stopTimes.size());
+                graphHopper.setStopTimes(stopTimes);
+                break;
+            }
+            initialized = true;
+        }
 
         GHResponse ghResponse = graphHopper.route(request);
 

@@ -55,8 +55,7 @@ import com.graphhopper.util.shapes.GHPoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.text.DateFormat;
 import java.util.*;
 import java.util.concurrent.locks.Lock;
@@ -76,6 +75,11 @@ import static com.graphhopper.util.Parameters.Algorithms.*;
  * @see GraphHopperAPI
  */
 public class GraphHopper implements GraphHopperAPI {
+    //edgeid, stoptimes
+    private Map<Integer, List<Integer>> edgeStops;
+    HashMap<Integer, Double> edgeLengthMap;
+
+
     private final Logger logger = LoggerFactory.getLogger(getClass());
     private final String fileLockName = "gh.lock";
     private final Set<RoutingAlgorithmFactoryDecorator> algoDecorators = new LinkedHashSet<>();
@@ -125,6 +129,7 @@ public class GraphHopper implements GraphHopperAPI {
     private TagParserFactory tagParserFactory = new DefaultTagParserFactory();
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
     private PathDetailsBuilderFactory pathBuilderFactory = new PathDetailsBuilderFactory();
+    private Map<Double[], List<Integer>> stopTimes;
 
     public GraphHopper() {
         chFactoryDecorator.setEnabled(true);
@@ -944,10 +949,16 @@ public class GraphHopper implements GraphHopperAPI {
         return response;
     }
 
+    @Override
+    public void setStopTimes(Map<Double[], List<Integer>> stopTimes) {
+        this.stopTimes = stopTimes;
+    }
+
     /**
      * This method calculates the alternative path list using the low level Path objects.
      */
     public List<Path> calcPaths(GHRequest request, GHResponse ghRsp) {
+        double prob = 0;
         if (ghStorage == null || !fullyLoaded)
             throw new IllegalStateException("Do a successful call to load or importOrLoad before routing");
 
@@ -1004,6 +1015,9 @@ public class GraphHopper implements GraphHopperAPI {
                 routingTemplate = new AlternativeRoutingTemplate(request, ghRsp, locationIndex, encodingManager);
             else
                 routingTemplate = new ViaRoutingTemplate(request, ghRsp, locationIndex, encodingManager);
+
+            //finding the spans of bus stops to edges
+            snapToEdges(encoder);
 
             List<Path> altPaths = null;
             int maxRetries = routingTemplate.getMaxRetries();
@@ -1066,6 +1080,12 @@ public class GraphHopper implements GraphHopperAPI {
                 // do the actual route calculation !
                 altPaths = routingTemplate.calcPaths(queryGraph, tmpAlgoFactory, algoOpts);
 
+                if (altPaths.size() > 1) {
+                    throw new RuntimeException("alt Path size > 1");
+                }
+                //calculate the probability
+                prob = calculateProb(altPaths);
+
                 boolean tmpEnableInstructions = hints.getBool(Routing.INSTRUCTIONS, getEncodingManager().isEnableInstructions());
                 boolean tmpCalcPoints = hints.getBool(Routing.CALC_POINTS, calcPoints);
                 double wayPointMaxDistance = hints.getDouble(Routing.WAY_POINT_MAX_DISTANCE, 1d);
@@ -1085,6 +1105,8 @@ public class GraphHopper implements GraphHopperAPI {
                     break;
             }
 
+            //update the probability
+            ghRsp.getAll().get(0).prob = prob;
             return altPaths;
 
         } catch (IllegalArgumentException ex) {
@@ -1092,6 +1114,100 @@ public class GraphHopper implements GraphHopperAPI {
             return Collections.emptyList();
         } finally {
             readLock.unlock();
+        }
+    }
+
+    private double calculateProb(List<Path> altPaths) {
+        System.out.println(altPaths.get(0).getDistance());
+
+        loadEdgeLengthMap();
+
+        return 0.5;
+    }
+
+    private void loadEdgeLengthMap() {
+        if(edgeLengthMap != null) return;
+        loadEdgeWeightMapFromFile();
+    }
+
+    private void loadEdgeWeightMapFromFile() {
+        String mapFileName = "edgeLengthMapFile";
+
+        File f = new File(mapFileName);
+        if (f.isFile() && f.canRead()) {
+            try {
+                ObjectInputStream o = new ObjectInputStream(new FileInputStream(f));
+                try {
+                    edgeLengthMap = (HashMap<Integer, Double>) o.readObject();
+                } finally {
+                    o.close();
+                }
+            } catch (IOException | ClassNotFoundException ex) {
+                ex.printStackTrace();
+            }
+        } else {
+            edgeLengthMap = new HashMap<>();
+            AllEdgesIterator allEdgesIterator = ghStorage.getAllEdges();
+            //TODO do we need to call the first edge?
+            while (allEdgesIterator.next()){
+                edgeLengthMap.put(allEdgesIterator.getEdge(), allEdgesIterator.getDistance());
+            }
+            //write to file
+            try {
+                ObjectOutputStream o = new ObjectOutputStream(new FileOutputStream(f));
+                try {
+                    o.writeObject(edgeLengthMap);
+                } finally {
+                    o.close();
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+    }
+
+
+    public void snapToEdges(FlagEncoder encoder) {
+        if (edgeStops == null){
+            loadFromFile(encoder);
+        }
+    }
+
+    private void loadFromFile(FlagEncoder encoder) {
+        String mapFileName = "edgeStopsFile";
+
+        File f = new File(mapFileName);
+        if (f.isFile() && f.canRead()) {
+            try {
+                ObjectInputStream o = new ObjectInputStream(new FileInputStream(f));
+                try {
+                    edgeStops = (Map<Integer, List<Integer>>) o.readObject();
+                } finally {
+                    o.close();
+                }
+            } catch (IOException | ClassNotFoundException ex) {
+                ex.printStackTrace();
+            }
+        } else {
+            EdgeFilter edgeFilter = DefaultEdgeFilter.allEdges(encoder);
+            edgeStops = new HashMap<>();
+            for (Map.Entry<Double[], List<Integer>> entry : stopTimes.entrySet()) {
+                QueryResult queryResult = locationIndex.findClosest(entry.getKey()[0], entry.getKey()[1], edgeFilter);
+                List<Integer> value = edgeStops.getOrDefault(queryResult.getClosestEdge().getEdge(), new ArrayList<>());
+                value.addAll(entry.getValue());
+                edgeStops.put(queryResult.getClosestEdge().getEdge(), value);
+            }
+            //write edge stops to file
+            try {
+                ObjectOutputStream o = new ObjectOutputStream(new FileOutputStream(f));
+                try {
+                    o.writeObject(edgeStops);
+                } finally {
+                    o.close();
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
         }
     }
 

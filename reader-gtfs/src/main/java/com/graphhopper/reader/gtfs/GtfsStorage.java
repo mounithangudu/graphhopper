@@ -193,7 +193,7 @@ public class GtfsStorage implements GraphExtension, GtfsStorageI {
 		this.routes = data.getHashMap("routes");
 	}
 
-	void loadGtfsFromFile(String id, ZipFile zip) {
+	public void loadGtfsFromFile(String id, ZipFile zip) {
 		File file = new File(dir.getLocation() + "/" + id);
 		try {
 			Files.deleteIfExists(file.toPath());

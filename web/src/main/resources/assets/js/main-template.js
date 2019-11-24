@@ -138,8 +138,9 @@ $(document).ready(function (e) {
                     if (vehicles.length > 0)
                         ghRequest.initVehicle(vehicles[0]);
 
-                    if (ghRequest.isPublicTransit())
-                        $(".time_input").show();
+                    $(".time_input").show();
+                    // if (ghRequest.isPublicTransit())
+                    //     $(".time_input").show();
 
                     var hiddenVehicles = [];
                     for (var i in vehicles) {
@@ -241,7 +242,7 @@ function initFromParams(params, doQuery) {
     var flatpickr = new Flatpickr(document.getElementById("input_date_0"), {
         defaultDate: new Date(),
         allowInput: true, /* somehow then does not sync!? */
-        minuteIncrement: 15,
+        minuteIncrement: 10,
         time_24hr: true,
         enableTime: true
     });
@@ -483,9 +484,9 @@ function resolveAll() {
         ret[i] = resolveIndex(i);
     }
 
-    if(ghRequest.isPublicTransit())
-        ghRequest.setEarliestDepartureTime(
-            moment($("#input_date_0").val(), 'YYYY-MM-DD HH:mm').toISOString());
+    // if(ghRequest.isPublicTransit())
+    ghRequest.setEarliestDepartureTime(
+        moment($("#input_date_0").val(), 'YYYY-MM-DD HH:mm').toISOString());
 
     return ret;
 }
@@ -495,6 +496,7 @@ function flagAll() {
         setFlag(ghRequest.route.getIndex(i), i);
     }
 }
+
 
 function routeLatLng(request, doQuery) {
     var i;
@@ -653,10 +655,18 @@ function routeLatLng(request, doQuery) {
                     tempRouteInfo = translate.tr("pt_route_info_walking", [tempArrTime, tempDistance]);
             } else {
                 var tmpDuration = translate.createTimeString(path.time);
+                // var probabilityTohit = translate.createProbString(36);
                 tempRouteInfo = translate.tr("route_info", [tempDistance, tmpDuration]);
+                // tempRouteInfo = tempRouteInfo + "  blablabla";
+                // modifying to include bus interactions
+                // var busInteractions = path.busEncounters;
+
+
             }
 
             routeInfo.append(tempRouteInfo);
+
+            routeInfo.append(" ProbeeeEE: " + path.prob);
 
             var kmButton = $("<button class='plain_text_button " + (request.useMiles ? "gray" : "") + "'>");
             kmButton.text(translate.tr2("km_abbr"));
