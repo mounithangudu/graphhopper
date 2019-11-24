@@ -168,6 +168,7 @@ public class WebHelper {
             jsonPath.put("weight", Helper.round6(ar.getRouteWeight()));
             jsonPath.put("time", ar.getTime());
             jsonPath.put("transfers", ar.getNumChanges());
+            jsonPath.put("prob", ar.prob);
             if (!ar.getDescription().isEmpty()) {
                 jsonPath.putPOJO("description", ar.getDescription());
             }

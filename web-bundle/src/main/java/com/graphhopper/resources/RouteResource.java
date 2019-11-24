@@ -17,19 +17,27 @@
  */
 package com.graphhopper.resources;
 
+import com.conveyal.gtfs.GTFSFeed;
+import com.conveyal.gtfs.model.Stop;
+import com.conveyal.gtfs.model.StopTime;
 import com.graphhopper.GHRequest;
 import com.graphhopper.GHResponse;
 import com.graphhopper.GraphHopperAPI;
 import com.graphhopper.MultiException;
 import com.graphhopper.http.WebHelper;
+import com.graphhopper.reader.gtfs.GtfsStorage;
 import com.graphhopper.routing.util.HintsMap;
 import com.graphhopper.util.Constants;
 import com.graphhopper.util.InstructionList;
+import com.graphhopper.util.Parameters;
 import com.graphhopper.util.StopWatch;
 import com.graphhopper.util.gpx.GpxFromInstructions;
 import com.graphhopper.util.shapes.GHPoint;
+import org.mapdb.BTreeMap;
+import org.mapdb.Fun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.mapdb.Fun.Tuple2;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -37,10 +45,12 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.*;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.util.*;
 
 import static com.graphhopper.util.Parameters.Details.PATH_DETAILS;
 import static com.graphhopper.util.Parameters.Routing.*;
@@ -60,10 +70,17 @@ public class RouteResource {
     private final GraphHopperAPI graphHopper;
     private final Boolean hasElevation;
 
+    private final GtfsStorage gtfsStorage;
+    boolean initialized;
+
     @Inject
-    public RouteResource(GraphHopperAPI graphHopper, @Named("hasElevation") Boolean hasElevation) {
+    public RouteResource(GraphHopperAPI graphHopper, @Named("hasElevation") Boolean hasElevation,
+                         GtfsStorage gtfsStorage
+    ) {
         this.graphHopper = graphHopper;
         this.hasElevation = hasElevation;
+
+        this.gtfsStorage = gtfsStorage;
     }
 
     @GET
@@ -91,10 +108,30 @@ public class RouteResource {
             @QueryParam("gpx.track") @DefaultValue("true") boolean withTrack,
             @QueryParam("gpx.waypoints") @DefaultValue("false") boolean withWayPoints,
             @QueryParam("gpx.trackname") @DefaultValue("GraphHopper Track") String trackName,
+            @QueryParam(Parameters.PT.EARLIEST_DEPARTURE_TIME) String departureTimeString,
             @QueryParam("gpx.millis") String timeString) {
         boolean writeGPX = "gpx".equalsIgnoreCase(type);
         instructions = writeGPX || instructions;
 
+        System.out.println();
+        System.out.println();
+        System.out.print("printing date: ");
+        System.out.println(departureTimeString);
+        if (departureTimeString == null) {
+            throw new BadRequestException(String.format(Locale.ROOT, "Illegal value for required parameter %s: [%s]", Parameters.PT.EARLIEST_DEPARTURE_TIME, departureTimeString));
+        }
+        Instant departureTime;
+//        departureTime.get()
+        try {
+            departureTime = Instant.parse(departureTimeString);
+        } catch (DateTimeParseException e) {
+            throw new BadRequestException(String.format(Locale.ROOT, "Illegal value for required parameter %s: [%s]", Parameters.PT.EARLIEST_DEPARTURE_TIME, departureTimeString));
+        }
+        //static for pittsburgh
+        LocalTime local =  LocalTime.from(departureTime.atZone(ZoneId.of("America/New_York")));
+        int timeToSec = local.toSecondOfDay();
+//        LocalTime time = departureTime.atZone(ZoneOffset.UTC).toLocalTime();
+        System.out.println(departureTime.getEpochSecond());
         StopWatch sw = new StopWatch().start();
 
         if (requestPoints.isEmpty())
@@ -123,6 +160,7 @@ public class RouteResource {
 
         initHints(request.getHints(), uriInfo.getQueryParameters());
         translateTurnCostsParamToEdgeBased(request, uriInfo.getQueryParameters());
+        request.requestTimeInSeconds = timeToSec;
         request.setVehicle(vehicleStr).
                 setWeighting(weighting).
                 setAlgorithm(algoStr).
@@ -134,6 +172,30 @@ public class RouteResource {
                 put(CALC_POINTS, calcPoints).
                 put(INSTRUCTIONS, instructions).
                 put(WAY_POINT_MAX_DISTANCE, minPathPrecision);
+
+        assert gtfsStorage != null;
+        //check for necissity
+
+        if (!initialized){
+            for (GTFSFeed feed: gtfsStorage.getGtfsFeeds().values()){
+                Map<Tuple2<Double, Double>, List<Integer>> stopTimes = new HashMap<>();
+                BTreeMap<Tuple2, StopTime> stopTimesMap = feed.stop_times;
+                for (StopTime stopTime: stopTimesMap.values()){
+                    String stop_id = stopTime.stop_id;
+                    int stop_time = stopTime.arrival_time;
+                    Stop stop = feed.stops.get(stop_id);
+                    Tuple2<Double, Double> tupleKey = new Tuple2<>(stop.stop_lat, stop.stop_lon);
+
+                    List<Integer> value =  stopTimes.getOrDefault(tupleKey, new ArrayList<>());
+                    value.add(stop_time);
+                    stopTimes.put(tupleKey, value);
+                }
+                System.out.println("Stop Time Size: " + stopTimes.size());
+                graphHopper.setStopTimes(stopTimes);
+                break;
+            }
+            initialized = true;
+        }
 
         GHResponse ghResponse = graphHopper.route(request);
 

@@ -49,6 +49,8 @@ public class PathWrapper {
     private final Map<String, List<PathDetail>> pathDetails = new HashMap<>();
     private BigDecimal fare;
     private boolean impossible = false;
+    private int busEncounters = 0;
+    public double prob = 37.5;
 
     /**
      * @return the description of this route alternative to make it meaningful for the user e.g. it

@@ -44,6 +44,7 @@ public class GHRequest {
     private String algo = "";
     private boolean possibleToAdd = false;
     private Locale locale = Locale.US;
+    public int requestTimeInSeconds = 0;
 
     public GHRequest() {
         this(5);

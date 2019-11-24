@@ -65,7 +65,7 @@ public class Path {
     private FlagEncoder encoder;
     private boolean found;
     private int fromNode = -1;
-    private GHIntArrayList edgeIds;
+    public GHIntArrayList edgeIds;
     private double weight;
     private NodeAccess nodeAccess;
 

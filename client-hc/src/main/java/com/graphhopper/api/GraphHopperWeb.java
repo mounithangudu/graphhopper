@@ -32,8 +32,10 @@ import com.graphhopper.util.shapes.GHPoint;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.ResponseBody;
+import org.mapdb.Fun;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -189,6 +191,11 @@ public class GraphHopperWeb implements GraphHopperAPI {
         } finally {
             Helper.close(rspBody);
         }
+    }
+
+    @Override
+    public void setStopTimes(Map<Fun.Tuple2<Double, Double>, List<Integer>> stopTimes) {
+        //TODO how not to change the GH API
     }
 
     private OkHttpClient getClientForRequest(GHRequest request) {
