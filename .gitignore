@@ -50,3 +50,4 @@ package-lock.json
 edgeLengthMapFile
 edgeStopsFile
 /logs
+edgeToBaseMapFileName

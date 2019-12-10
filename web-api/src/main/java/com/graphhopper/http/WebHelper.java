@@ -28,9 +28,7 @@ import com.graphhopper.util.PointList;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.text.NumberFormat;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 /**
  * Code which handles polyline encoding and other web stuff.
@@ -168,7 +166,7 @@ public class WebHelper {
             jsonPath.put("weight", Helper.round6(ar.getRouteWeight()));
             jsonPath.put("time", ar.getTime());
             jsonPath.put("transfers", ar.getNumChanges());
-            jsonPath.put("prob", ar.prob);
+            jsonPath.put("prob", ar.getProb());
             if (!ar.getDescription().isEmpty()) {
                 jsonPath.putPOJO("description", ar.getDescription());
             }
@@ -190,6 +188,14 @@ public class WebHelper {
             if (ar.getFare() != null) {
                 jsonPath.put("fare", NumberFormat.getCurrencyInstance(Locale.ROOT).format(ar.getFare()));
             }
+            List<double[]> busEncountersCoords = new ArrayList<>();
+            List<Integer> busEncountersCount = new ArrayList<>();
+            for (Map.Entry<double[], Integer> entry: ar.getBusEncounters().entrySet()){
+                busEncountersCoords.add(entry.getKey());
+                busEncountersCount.add(entry.getValue());
+            }
+            jsonPath.putPOJO("busCoordinates", busEncountersCoords);
+            jsonPath.putPOJO("busEncountersCount", busEncountersCount);
         }
         return json;
     }

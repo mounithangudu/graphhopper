@@ -668,8 +668,19 @@ function routeLatLng(request, doQuery) {
             }
 
             routeInfo.append(tempRouteInfo);
+            routeInfo.append(" With buss traffic of : " + path.prob);
 
-            routeInfo.append(" With bus traffic of : " + path.prob);
+            for (var i = 0; i < path.busCoordinates.length; i++) {
+                var marker = L.marker(path.busCoordinates[i])
+                    .bindTooltip(path.busEncountersCount[i].toString(),
+                    {
+                        permanent: true,
+                        direction: 'right'
+                    }
+                    );
+
+                marker.addTo(mapLayer.getRoutingLayer());
+            }
 
             var kmButton = $("<button class='plain_text_button " + (request.useMiles ? "gray" : "") + "'>");
             kmButton.text(translate.tr2("km_abbr"));

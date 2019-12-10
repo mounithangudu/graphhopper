@@ -21,6 +21,7 @@ import com.graphhopper.util.InstructionList;
 import com.graphhopper.util.PointList;
 import com.graphhopper.util.details.PathDetail;
 import com.graphhopper.util.shapes.BBox;
+import org.mapdb.Fun;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -49,8 +50,32 @@ public class PathWrapper {
     private final Map<String, List<PathDetail>> pathDetails = new HashMap<>();
     private BigDecimal fare;
     private boolean impossible = false;
-    private int busEncounters = 0;
-    public double prob = 37.5;
+    private double prob = 0;
+
+    private Map<double[], Integer> busEncounterCounts;
+
+    // bus encounter coodinates
+
+    public void setBusEncounterCounts(Map<double[], Integer> busEncounterCounts) {
+        this.busEncounterCounts = busEncounterCounts;
+    }
+    public Map<double[], Integer> getBusEncounters() {
+        if (busEncounterCounts == null){
+            throw new RuntimeException("busEncounterCounts is null");
+        }
+        return busEncounterCounts;
+    }
+
+
+    public void setProb(double prob) {
+        this.prob = prob;
+    }
+
+
+    public double getProb() {
+        return prob;
+    }
+
 
     /**
      * @return the description of this route alternative to make it meaningful for the user e.g. it

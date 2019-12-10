@@ -82,6 +82,7 @@ public class GraphHopper implements GraphHopperAPI {
     //edgeid, stoptimes
     private Map<Integer, List<Integer>> edgeStops;
     private HashMap<Integer, Double> edgeLengthMap;
+    private HashMap<Integer, double[]> edgeToBaseNodeMap;
 
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
@@ -963,6 +964,8 @@ public class GraphHopper implements GraphHopperAPI {
      */
     public List<Path> calcPaths(GHRequest request, GHResponse ghRsp) {
         double prob = 0;
+        Map<double[], Integer> busEncounters = null;
+
         if (ghStorage == null || !fullyLoaded)
             throw new IllegalStateException("Do a successful call to load or importOrLoad before routing");
 
@@ -1088,7 +1091,8 @@ public class GraphHopper implements GraphHopperAPI {
                     throw new RuntimeException("alt Path size > 1");
                 }
                 //calculate the probability
-                prob = calculateProb(altPaths, request.requestTimeInSeconds);
+                busEncounters = new HashMap<>();
+                prob = calculateProb(altPaths, request.requestTimeInSeconds, busEncounters);
 
                 boolean tmpEnableInstructions = hints.getBool(Routing.INSTRUCTIONS, getEncodingManager().isEnableInstructions());
                 boolean tmpCalcPoints = hints.getBool(Routing.CALC_POINTS, calcPoints);
@@ -1110,7 +1114,8 @@ public class GraphHopper implements GraphHopperAPI {
             }
 
             //update the probability
-            ghRsp.getAll().get(0).prob = prob;
+            ghRsp.getAll().get(0).setProb(prob);
+            ghRsp.getAll().get(0).setBusEncounterCounts(busEncounters);
             return altPaths;
 
         } catch (IllegalArgumentException ex) {
@@ -1121,12 +1126,12 @@ public class GraphHopper implements GraphHopperAPI {
         }
     }
 
-    private double calculateProb(List<Path> altPaths, int requestTimeInSeconds) {
+    private double calculateProb(List<Path> altPaths, int requestTimeInSeconds, Map<double[], Integer> busEncounters) {
         Path current = altPaths.get(0);
         double distance = current.getDistance();
         System.out.println("Distance of the path " + distance);
         //in Seconds
-        int travelTime = (int)(current.getTime()/1000);
+        int travelTime = (int) (current.getTime() / 1000);
 //        int travelTime = (int) ((distance * 3600) / (DEFAULT_CAR_SPEED * 1000));
         loadEdgeLengthMap();
         System.out.println("Edges sizze " + current.getEdgeCount());
@@ -1135,8 +1140,8 @@ public class GraphHopper implements GraphHopperAPI {
         //totaldistance calculation
         int totalDistance = 0;
         int unavailableEdges = 0;
-        for (int edgeId : current.edgeIds.toArray()){
-            if (!edgeLengthMap.containsKey(edgeId)){
+        for (int edgeId : current.edgeIds.toArray()) {
+            if (!edgeLengthMap.containsKey(edgeId)) {
                 unavailableEdges++;
                 continue;
             }
@@ -1147,25 +1152,42 @@ public class GraphHopper implements GraphHopperAPI {
             if (!edgeStops.containsKey(edgeId)) {
                 continue;
             }
+            int stopsCount = 0;
+            int travelEndTime = requestTimeInSeconds + travelTime;
             int index = Collections.binarySearch(edgeStops.get(edgeId), requestTimeInSeconds);
-            if (index < 0){
+            if (index < 0) {
                 int insertionPoint = -(index + 1);
                 List<Integer> testList = edgeStops.get(edgeId);
                 if (insertionPoint == edgeStops.get(edgeId).size()) continue;
-                if ((edgeStops.get(edgeId).get(insertionPoint) - requestTimeInSeconds > travelTime)) {
+                if ((edgeStops.get(edgeId).get(insertionPoint) - requestTimeInSeconds >= travelTime)) {
                     continue;
                 }
+                //calculating bus counts
+                index = insertionPoint;
+            }
+            for (int i = index; i < edgeStops.get(edgeId).size(); ++i){
+                if (edgeStops.get(edgeId).get(i) <= travelEndTime){
+                    ++stopsCount;
+                }
+                else {
+                    break;
+                }
+            }
+            if (stopsCount < 1){
+                throw new RuntimeException("No stops");
             }
 
             double length = edgeLengthMap.get(edgeId);
             double timeTakenByCar = length / DEFAULT_CAR_SPEED;
             double timeTakenByBus = length / DEFAULT_BUS_SPEED;
-            double hittingProb = (timeTakenByBus - timeTakenByCar)/timeTakenByBus;
+            double hittingProb = (timeTakenByBus - timeTakenByCar) / timeTakenByBus;
             if (hittingProb < 0) continue;
-            numerator += hittingProb*length;
+            numerator += stopsCount * hittingProb * length;
+
+            busEncounters.put(edgeToBaseNodeMap.get(edgeId), stopsCount);
         }
-        if (current.getDistance() <=0) return 0;
-        return  numerator/current.getDistance();
+        if (current.getDistance() <= 0) return 0;
+        return numerator / current.getDistance();
     }
 
     private void loadEdgeLengthMap() {
@@ -1175,7 +1197,6 @@ public class GraphHopper implements GraphHopperAPI {
 
     private void loadEdgeWeightMapFromFile() {
         String mapFileName = "edgeLengthMapFile";
-
         File f = new File(mapFileName);
         if (f.isFile() && f.canRead()) {
             try {
@@ -1211,22 +1232,27 @@ public class GraphHopper implements GraphHopperAPI {
 
 
     public void snapToEdges(FlagEncoder encoder) {
-        if (edgeStops == null) {
+        if (edgeStops == null || edgeToBaseNodeMap == null) {
             loadFromFile(encoder);
         }
     }
 
     private void loadFromFile(FlagEncoder encoder) {
         String mapFileName = "edgeStopsFile";
+        String edgeToBaseMapFileName = "edgeToBaseMapFileName";
 
         File f = new File(mapFileName);
-        if (f.isFile() && f.canRead()) {
+        File f2 = new File(edgeToBaseMapFileName);
+        if (f.isFile() && f.canRead() && f2.isFile() && f2.canRead()) {
             try {
                 ObjectInputStream o = new ObjectInputStream(new FileInputStream(f));
+                ObjectInputStream o2 = new ObjectInputStream(new FileInputStream(f2));
                 try {
                     edgeStops = (Map<Integer, List<Integer>>) o.readObject();
+                    edgeToBaseNodeMap = (HashMap<Integer, double[]>) o2.readObject();
                 } finally {
                     o.close();
+                    o2.close();
                 }
             } catch (IOException | ClassNotFoundException ex) {
                 ex.printStackTrace();
@@ -1234,11 +1260,19 @@ public class GraphHopper implements GraphHopperAPI {
         } else {
             EdgeFilter edgeFilter = DefaultEdgeFilter.allEdges(encoder);
             edgeStops = new HashMap<>();
+            edgeToBaseNodeMap = new HashMap<>();
             for (Map.Entry<Fun.Tuple2<Double, Double>, List<Integer>> entry : stopTimes.entrySet()) {
                 QueryResult queryResult = locationIndex.findClosest(entry.getKey().a, entry.getKey().b, edgeFilter);
-                List<Integer> value = edgeStops.getOrDefault(queryResult.getClosestEdge().getEdge(), new ArrayList<>());
+                int edge = queryResult.getClosestEdge().getEdge();
+                List<Integer> value = edgeStops.getOrDefault(edge, new ArrayList<>());
                 value.addAll(entry.getValue());
-                edgeStops.put(queryResult.getClosestEdge().getEdge(), value);
+                edgeStops.put(edge, value);
+                if (!edgeToBaseNodeMap.containsKey(edge)) {
+                    double[] busStop = new double[2];
+                    busStop[0] = entry.getKey().a;
+                    busStop[1] = entry.getKey().b;
+                    edgeToBaseNodeMap.put(edge, busStop);
+                }
             }
             for (List<Integer> times : edgeStops.values()) {
                 Collections.sort(times);
@@ -1246,10 +1280,13 @@ public class GraphHopper implements GraphHopperAPI {
             //write edge stops to file
             try {
                 ObjectOutputStream o = new ObjectOutputStream(new FileOutputStream(f));
+                ObjectOutputStream o2 = new ObjectOutputStream(new FileOutputStream(f2));
                 try {
                     o.writeObject(edgeStops);
+                    o2.writeObject(edgeToBaseNodeMap);
                 } finally {
                     o.close();
+                    o2.close();
                 }
             } catch (IOException ex) {
                 ex.printStackTrace();
