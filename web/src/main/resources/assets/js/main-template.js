@@ -95,94 +95,94 @@ $(document).ready(function (e) {
 
     var urlParams = urlTools.parseUrlWithHisto();
     $.when(ghRequest.fetchTranslationMap(urlParams.locale), ghRequest.getInfo())
-            .then(function (arg1, arg2) {
-                // init translation retrieved from first call (fetchTranslationMap)
-                var translations = arg1[0];
-                autocomplete.setLocale(translations.locale);
-                ghRequest.setLocale(translations.locale);
-                translate.init(translations);
+        .then(function (arg1, arg2) {
+            // init translation retrieved from first call (fetchTranslationMap)
+            var translations = arg1[0];
+            autocomplete.setLocale(translations.locale);
+            ghRequest.setLocale(translations.locale);
+            translate.init(translations);
 
-                // init bounding box from getInfo result
-                var json = arg2[0];
-                var tmp = json.bbox;
-                bounds.initialized = true;
-                bounds.minLon = tmp[0];
-                bounds.minLat = tmp[1];
-                bounds.maxLon = tmp[2];
-                bounds.maxLat = tmp[3];
-                nominatim.setBounds(bounds);
-                var vehiclesDiv = $("#vehicles");
+            // init bounding box from getInfo result
+            var json = arg2[0];
+            var tmp = json.bbox;
+            bounds.initialized = true;
+            bounds.minLon = tmp[0];
+            bounds.minLat = tmp[1];
+            bounds.maxLon = tmp[2];
+            bounds.maxLat = tmp[3];
+            nominatim.setBounds(bounds);
+            var vehiclesDiv = $("#vehicles");
 
-                function createButton(vehicle, hide) {
-                    var button = $("<button class='vehicle-btn' title='" + translate.tr(vehicle) + "'/>");
-                    if (hide)
-                        button.hide();
+            function createButton(vehicle, hide) {
+                var button = $("<button class='vehicle-btn' title='" + translate.tr(vehicle) + "'/>");
+                if (hide)
+                    button.hide();
 
-                    button.attr('id', vehicle);
-                    button.html("<img src='img/" + vehicle + ".png' alt='" + translate.tr(vehicle) + "'></img>");
-                    button.click(function () {
-                        ghRequest.initVehicle(vehicle);
-                        resolveAll();
-                        routeLatLng(ghRequest);
+                button.attr('id', vehicle);
+                button.html("<img src='img/" + vehicle + ".png' alt='" + translate.tr(vehicle) + "'></img>");
+                button.click(function () {
+                    ghRequest.initVehicle(vehicle);
+                    resolveAll();
+                    routeLatLng(ghRequest);
+                });
+                return button;
+            }
+
+            if (json.features) {
+                ghRequest.features = json.features;
+
+                // car, foot and bike should come first. mc comes last
+                var prefer = {"car": 1, "foot": 2, "bike": 3, "motorcycle": 10000};
+                var showAllVehicles = urlParams.vehicle && (!prefer[urlParams.vehicle] || prefer[urlParams.vehicle] > 3);
+                var vehicles = vehicleTools.getSortedVehicleKeys(json.features, prefer);
+                if (vehicles.length > 0)
+                    ghRequest.initVehicle(vehicles[0]);
+
+                $(".time_input").show();
+                // if (ghRequest.isPublicTransit())
+                //     $(".time_input").show();
+
+                var hiddenVehicles = [];
+                for (var i in vehicles) {
+                    var btn = createButton(vehicles[i].toLowerCase(), !showAllVehicles && i > 2);
+                    vehiclesDiv.append(btn);
+
+                    if (i > 2)
+                        hiddenVehicles.push(btn);
+                }
+
+                if (!showAllVehicles && vehicles.length > 3) {
+                    var moreBtn = $("<a id='more-vehicle-btn'> ...</a>").click(function () {
+                        moreBtn.hide();
+                        for (var i in hiddenVehicles) {
+                            hiddenVehicles[i].show();
+                        }
                     });
-                    return button;
+                    vehiclesDiv.append($("<a class='vehicle-info-link' href='https://graphhopper.com/api/1/docs/supported-vehicle-profiles/'>?</a>"));
+                    vehiclesDiv.append(moreBtn);
                 }
+            }
+            metaVersionInfo = messages.extractMetaVersionInfo(json);
 
-                if (json.features) {
-                    ghRequest.features = json.features;
+            mapLayer.initMap(bounds, setStartCoord, setIntermediateCoord, setEndCoord, urlParams.layer, urlParams.use_miles);
 
-                    // car, foot and bike should come first. mc comes last
-                    var prefer = {"car": 1, "foot": 2, "bike": 3, "motorcycle": 10000};
-                    var showAllVehicles = urlParams.vehicle && (!prefer[urlParams.vehicle] || prefer[urlParams.vehicle] > 3);
-                    var vehicles = vehicleTools.getSortedVehicleKeys(json.features, prefer);
-                    if (vehicles.length > 0)
-                        ghRequest.initVehicle(vehicles[0]);
+            // execute query
+            initFromParams(urlParams, true);
 
-                    $(".time_input").show();
-                    // if (ghRequest.isPublicTransit())
-                    //     $(".time_input").show();
+            checkInput();
+        }, function (err) {
+            console.log(err);
+            $('#error').html('GraphHopper API offline? <a href="http://graphhopper.com/maps">Refresh</a>' + '<br/>Status: ' + err.statusText + '<br/>' + host);
 
-                    var hiddenVehicles = [];
-                    for (var i in vehicles) {
-                        var btn = createButton(vehicles[i].toLowerCase(), !showAllVehicles && i > 2);
-                        vehiclesDiv.append(btn);
-
-                        if (i > 2)
-                            hiddenVehicles.push(btn);
-                    }
-
-                    if (!showAllVehicles && vehicles.length > 3) {
-                        var moreBtn = $("<a id='more-vehicle-btn'> ...</a>").click(function () {
-                            moreBtn.hide();
-                            for (var i in hiddenVehicles) {
-                                hiddenVehicles[i].show();
-                            }
-                        });
-                        vehiclesDiv.append($("<a class='vehicle-info-link' href='https://graphhopper.com/api/1/docs/supported-vehicle-profiles/'>?</a>"));
-                        vehiclesDiv.append(moreBtn);
-                    }
-                }
-                metaVersionInfo = messages.extractMetaVersionInfo(json);
-
-                mapLayer.initMap(bounds, setStartCoord, setIntermediateCoord, setEndCoord, urlParams.layer, urlParams.use_miles);
-
-                // execute query
-                initFromParams(urlParams, true);
-
-                checkInput();
-            }, function (err) {
-                console.log(err);
-                $('#error').html('GraphHopper API offline? <a href="http://graphhopper.com/maps">Refresh</a>' + '<br/>Status: ' + err.statusText + '<br/>' + host);
-
-                bounds = {
-                    "minLon": -180,
-                    "minLat": -90,
-                    "maxLon": 180,
-                    "maxLat": 90
-                };
-                nominatim.setBounds(bounds);
-                mapLayer.initMap(bounds, setStartCoord, setIntermediateCoord, setEndCoord, urlParams.layer, urlParams.use_miles);
-            });
+            bounds = {
+                "minLon": -180,
+                "minLat": -90,
+                "maxLon": 180,
+                "maxLat": 90
+            };
+            nominatim.setBounds(bounds);
+            mapLayer.initMap(bounds, setStartCoord, setIntermediateCoord, setEndCoord, urlParams.layer, urlParams.use_miles);
+        });
 
     var language_code = urlParams.locale && urlParams.locale.split('-', 1)[0];
     if (language_code != 'en') {
@@ -246,8 +246,7 @@ function initFromParams(params, doQuery) {
         time_24hr: true,
         enableTime: true,
         altInput: true,
-        altFormat: "H :i"
-        // enable: []
+        altFormat: "l, H :i"
     });
 
     if (ghRequest.getEarliestDepartureTime()) {
@@ -297,6 +296,7 @@ function resolveCoords(pointsAsStr, doQuery) {
 }
 
 var FROM = 'from', TO = 'to';
+
 function getToFrom(index) {
     if (index === 0)
         return FROM;
@@ -307,7 +307,7 @@ function getToFrom(index) {
 
 function checkInput() {
     var template = $('#pointTemplate').html(),
-            len = ghRequest.route.size();
+        len = ghRequest.route.size();
 
     // remove deleted points
     if ($('#locationpoints > div.pointDiv').length > len) {
@@ -337,7 +337,7 @@ function checkInput() {
         var toFrom = getToFrom(i);
         div.data("index", i);
         div.find(".pointFlag").attr("src",
-                (toFrom === FROM) ? 'img/marker-small-green.png' :
+            (toFrom === FROM) ? 'img/marker-small-green.png' :
                 ((toFrom === TO) ? 'img/marker-small-red.png' : 'img/marker-small-blue.png'));
         if (len > 2) {
             div.find(".pointDelete").click(deleteClickHandler).prop('disabled', false).removeClass('ui-state-disabled');
@@ -360,14 +360,14 @@ function checkInput() {
 
 function setToStart(e) {
     var latlng = e.relatedTarget.getLatLng(),
-            index = ghRequest.route.getIndexByCoord(latlng);
+        index = ghRequest.route.getIndexByCoord(latlng);
     ghRequest.route.move(index, 0);
     routeIfAllResolved();
 }
 
 function setToEnd(e) {
     var latlng = e.relatedTarget.getLatLng(),
-            index = ghRequest.route.getIndexByCoord(latlng);
+        index = ghRequest.route.getIndexByCoord(latlng);
     ghRequest.route.move(index, -1);
     routeIfAllResolved();
 }
@@ -424,8 +424,8 @@ function setFlag(coord, index) {
         marker._openPopup = marker.openPopup;
         marker.openPopup = function () {
             var latlng = this.getLatLng(),
-                    locCoord = ghRequest.route.getIndexFromCoord(latlng),
-                    content;
+                locCoord = ghRequest.route.getIndexFromCoord(latlng),
+                content;
             if (locCoord.resolvedList && locCoord.resolvedList[0] && locCoord.resolvedList[0].locationDetails) {
                 var address = locCoord.resolvedList[0].locationDetails;
                 content = format.formatAddress(address);
@@ -607,7 +607,7 @@ function routeLatLng(request, doQuery) {
             };
         };
 
-        if(json.paths.length > 0 && json.paths[0].points_order) {
+        if (json.paths.length > 0 && json.paths[0].points_order) {
             mapLayer.clearLayers();
             var po = json.paths[0].points_order;
             for (i = 0; i < po.length; i++) {
@@ -648,11 +648,11 @@ function routeLatLng(request, doQuery) {
 
             var tempDistance = translate.createDistanceString(path.distance, request.useMiles);
             var tempRouteInfo;
-            if(request.isPublicTransit()) {
+            if (request.isPublicTransit()) {
                 var tempArrTime = moment(ghRequest.getEarliestDepartureTime())
-                                        .add(path.time, 'milliseconds')
-                                        .format('LT');
-                if(path.transfers >= 0)
+                    .add(path.time, 'milliseconds')
+                    .format('LT');
+                if (path.transfers >= 0)
                     tempRouteInfo = translate.tr("pt_route_info", [tempArrTime, path.transfers, tempDistance]);
                 else
                     tempRouteInfo = translate.tr("pt_route_info_walking", [tempArrTime, tempDistance]);
@@ -668,15 +668,17 @@ function routeLatLng(request, doQuery) {
             }
 
             routeInfo.append(tempRouteInfo);
-            routeInfo.append(" With buss traffic of : " + path.prob);
+            var probPercent = Math.floor(path.prob * 1000) / 10;
+            routeInfo.append("<br>")
+            routeInfo.append("Bus traffic:  " + probPercent + "%");
 
             for (var i = 0; i < path.busCoordinates.length; i++) {
                 var marker = L.marker(path.busCoordinates[i])
                     .bindTooltip(path.busEncountersCount[i].toString(),
-                    {
-                        permanent: true,
-                        direction: 'right'
-                    }
+                        {
+                            permanent: true,
+                            direction: 'right'
+                        }
                     );
 
                 marker.addTo(mapLayer.getRoutingLayer());
@@ -710,7 +712,7 @@ function routeLatLng(request, doQuery) {
             }
 
             var detailObj = path.details;
-            if(detailObj && request.api_params.debug) {
+            if (detailObj && request.api_params.debug) {
                 // detailKey, would be for example average_speed
                 for (var detailKey in detailObj) {
                     var pathDetailsArr = detailObj[detailKey];
@@ -754,10 +756,10 @@ function routeLatLng(request, doQuery) {
 
 function mySubmit() {
     var fromStr,
-            toStr,
-            viaStr,
-            allStr = [],
-            inputOk = true;
+        toStr,
+        viaStr,
+        allStr = [],
+        inputOk = true;
     var location_points = $("#locationpoints > div.pointDiv > input.pointInput");
     var len = location_points.size;
     $.each(location_points, function (index) {

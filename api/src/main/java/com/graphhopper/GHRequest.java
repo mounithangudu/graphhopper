@@ -21,6 +21,7 @@ import com.graphhopper.routing.util.HintsMap;
 import com.graphhopper.util.Helper;
 import com.graphhopper.util.shapes.GHPoint;
 
+import java.time.DayOfWeek;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -44,7 +45,26 @@ public class GHRequest {
     private String algo = "";
     private boolean possibleToAdd = false;
     private Locale locale = Locale.US;
-    public int requestTimeInSeconds = 0;
+
+    public DayOfWeek getDayOfWeek() {
+        return dayOfWeek;
+    }
+
+    public void setDayOfWeek(DayOfWeek dayOfWeek) {
+        this.dayOfWeek = dayOfWeek;
+    }
+
+    private DayOfWeek dayOfWeek = DayOfWeek.WEDNESDAY;
+
+    public void setRequestTimeInSeconds(int requestTimeInSeconds) {
+        this.requestTimeInSeconds = requestTimeInSeconds;
+    }
+
+    public int getRequestTimeInSeconds() {
+        return requestTimeInSeconds;
+    }
+
+    private int requestTimeInSeconds = 0;
 
     public GHRequest() {
         this(5);

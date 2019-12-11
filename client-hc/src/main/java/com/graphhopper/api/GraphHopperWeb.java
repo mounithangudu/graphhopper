@@ -34,6 +34,7 @@ import okhttp3.Request;
 import okhttp3.ResponseBody;
 import org.mapdb.Fun;
 
+import java.time.DayOfWeek;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -194,7 +195,7 @@ public class GraphHopperWeb implements GraphHopperAPI {
     }
 
     @Override
-    public void setStopTimes(Map<Fun.Tuple2<Double, Double>, List<Integer>> stopTimes) {
+    public void setStopTimes(Map<DayOfWeek, Map<Fun.Tuple2<Double, Double>, List<Integer>>> stopTimes) {
         //TODO how not to change the GH API
     }
 

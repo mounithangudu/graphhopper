@@ -18,6 +18,7 @@
 package com.graphhopper.resources;
 
 import com.conveyal.gtfs.GTFSFeed;
+import com.conveyal.gtfs.model.Calendar;
 import com.conveyal.gtfs.model.Stop;
 import com.conveyal.gtfs.model.StopTime;
 import com.graphhopper.GHRequest;
@@ -45,10 +46,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.*;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.*;
-import java.time.Instant;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
@@ -113,15 +111,14 @@ public class RouteResource {
         boolean writeGPX = "gpx".equalsIgnoreCase(type);
         instructions = writeGPX || instructions;
 
-        System.out.println();
-        System.out.println();
         System.out.print("printing date: ");
         System.out.println(departureTimeString);
+
         if (departureTimeString == null) {
             throw new BadRequestException(String.format(Locale.ROOT, "Illegal value for required parameter %s: [%s]", Parameters.PT.EARLIEST_DEPARTURE_TIME, departureTimeString));
         }
         Instant departureTime;
-//        departureTime.get()
+
         try {
             departureTime = Instant.parse(departureTimeString);
         } catch (DateTimeParseException e) {
@@ -129,6 +126,9 @@ public class RouteResource {
         }
         //static for pittsburgh
         LocalTime local =  LocalTime.from(departureTime.atZone(ZoneId.of("America/New_York")));
+        DayOfWeek dayOfWeek = departureTime.atZone(ZoneId.of("America/New_York")).getDayOfWeek();
+        System.out.println(dayOfWeek);
+
         int timeToSec = local.toSecondOfDay();
 //        LocalTime time = departureTime.atZone(ZoneOffset.UTC).toLocalTime();
         System.out.println(departureTime.getEpochSecond());
@@ -160,7 +160,8 @@ public class RouteResource {
 
         initHints(request.getHints(), uriInfo.getQueryParameters());
         translateTurnCostsParamToEdgeBased(request, uriInfo.getQueryParameters());
-        request.requestTimeInSeconds = timeToSec;
+        request.setRequestTimeInSeconds(timeToSec);
+        request.setDayOfWeek(dayOfWeek);
         request.setVehicle(vehicleStr).
                 setWeighting(weighting).
                 setAlgorithm(algoStr).
@@ -178,20 +179,78 @@ public class RouteResource {
 
         if (!initialized){
             for (GTFSFeed feed: gtfsStorage.getGtfsFeeds().values()){
-                Map<Tuple2<Double, Double>, List<Integer>> stopTimes = new HashMap<>();
+                Map<DayOfWeek, Map<Fun.Tuple2<Double, Double>, List<Integer>>> stopTimesAllDays= new HashMap<>();
+                stopTimesAllDays.put(DayOfWeek.MONDAY, new HashMap<>());
+                stopTimesAllDays.put(DayOfWeek.TUESDAY, new HashMap<>());
+                stopTimesAllDays.put(DayOfWeek.WEDNESDAY, new HashMap<>());
+                stopTimesAllDays.put(DayOfWeek.THURSDAY, new HashMap<>());
+                stopTimesAllDays.put(DayOfWeek.FRIDAY, new HashMap<>());
+                stopTimesAllDays.put(DayOfWeek.SATURDAY, new HashMap<>());
+                stopTimesAllDays.put(DayOfWeek.SUNDAY, new HashMap<>());
                 BTreeMap<Tuple2, StopTime> stopTimesMap = feed.stop_times;
                 for (StopTime stopTime: stopTimesMap.values()){
+                    if(feed.trips.get(stopTime.trip_id).direction_id != 0){
+                        continue;
+                    }
                     String stop_id = stopTime.stop_id;
                     int stop_time = stopTime.arrival_time;
                     Stop stop = feed.stops.get(stop_id);
                     Tuple2<Double, Double> tupleKey = new Tuple2<>(stop.stop_lat, stop.stop_lon);
 
-                    List<Integer> value =  stopTimes.getOrDefault(tupleKey, new ArrayList<>());
-                    value.add(stop_time);
-                    stopTimes.put(tupleKey, value);
+                    //tripID -> ServiceID
+                    Calendar calendar = feed.services.get(feed.trips.get(stopTime.trip_id).service_id).calendar;
+                    if (calendar.monday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.MONDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+                    if (calendar.tuesday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.TUESDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+                    if (calendar.wednesday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.WEDNESDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+                    if (calendar.thursday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.THURSDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+                    if (calendar.friday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.FRIDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+                    if (calendar.saturday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.SATURDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+                    if (calendar.sunday == 1){
+                        Map<Fun.Tuple2<Double, Double>, List<Integer>> thisDaysMap = stopTimesAllDays.get(DayOfWeek.SUNDAY);
+                        List<Integer> value =  thisDaysMap.getOrDefault(tupleKey, new ArrayList<>());
+                        value.add(stop_time);
+                        thisDaysMap.put(tupleKey, value);
+
+                    }
+
                 }
-                System.out.println("Stop Time Size: " + stopTimes.size());
-                graphHopper.setStopTimes(stopTimes);
+                graphHopper.setStopTimes(stopTimesAllDays);
                 break;
             }
             initialized = true;

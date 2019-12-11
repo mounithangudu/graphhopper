@@ -20,6 +20,7 @@ package com.graphhopper;
 
 import org.mapdb.Fun;
 
+import java.time.DayOfWeek;
 import java.util.List;
 import java.util.Map;
 
@@ -47,5 +48,5 @@ public interface GraphHopperAPI {
      */
     GHResponse route(GHRequest request);
 
-    void setStopTimes(Map<Fun.Tuple2<Double, Double>, List<Integer>> stopTimes);
+    void setStopTimes(Map<DayOfWeek, Map<Fun.Tuple2<Double, Double>, List<Integer>>> stopTimes);
 }

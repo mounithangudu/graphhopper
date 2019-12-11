@@ -58,6 +58,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.text.DateFormat;
+import java.time.DayOfWeek;
 import java.util.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -80,7 +81,7 @@ public class GraphHopper implements GraphHopperAPI {
     private final int DEFAULT_CAR_SPEED = 40;
     private final int DEFAULT_BUS_SPEED = 25;
     //edgeid, stoptimes
-    private Map<Integer, List<Integer>> edgeStops;
+    private Map<DayOfWeek,Map<Integer, List<Integer>>> edgeStops;
     private HashMap<Integer, Double> edgeLengthMap;
     private HashMap<Integer, double[]> edgeToBaseNodeMap;
 
@@ -134,7 +135,7 @@ public class GraphHopper implements GraphHopperAPI {
     private TagParserFactory tagParserFactory = new DefaultTagParserFactory();
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
     private PathDetailsBuilderFactory pathBuilderFactory = new PathDetailsBuilderFactory();
-    private Map<Fun.Tuple2<Double, Double>, List<Integer>> stopTimes;
+    private Map<DayOfWeek, Map<Fun.Tuple2<Double, Double>, List<Integer>>> stopTimes;
 
     public GraphHopper() {
         chFactoryDecorator.setEnabled(true);
@@ -955,7 +956,7 @@ public class GraphHopper implements GraphHopperAPI {
     }
 
     @Override
-    public void setStopTimes(Map<Fun.Tuple2<Double, Double>, List<Integer>> stopTimes) {
+    public void setStopTimes(Map<DayOfWeek, Map<Fun.Tuple2<Double, Double>, List<Integer>>> stopTimes) {
         this.stopTimes = stopTimes;
     }
 
@@ -1092,7 +1093,7 @@ public class GraphHopper implements GraphHopperAPI {
                 }
                 //calculate the probability
                 busEncounters = new HashMap<>();
-                prob = calculateProb(altPaths, request.requestTimeInSeconds, busEncounters);
+                prob = calculateProb(altPaths, request.getRequestTimeInSeconds(), busEncounters, request.getDayOfWeek());
 
                 boolean tmpEnableInstructions = hints.getBool(Routing.INSTRUCTIONS, getEncodingManager().isEnableInstructions());
                 boolean tmpCalcPoints = hints.getBool(Routing.CALC_POINTS, calcPoints);
@@ -1126,7 +1127,7 @@ public class GraphHopper implements GraphHopperAPI {
         }
     }
 
-    private double calculateProb(List<Path> altPaths, int requestTimeInSeconds, Map<double[], Integer> busEncounters) {
+    private double calculateProb(List<Path> altPaths, int requestTimeInSeconds, Map<double[], Integer> busEncounters, DayOfWeek dayOfWeek) {
         Path current = altPaths.get(0);
         double distance = current.getDistance();
         System.out.println("Distance of the path " + distance);
@@ -1147,26 +1148,28 @@ public class GraphHopper implements GraphHopperAPI {
             }
             totalDistance += edgeLengthMap.get(edgeId);
         }
+        Map<Integer, List<Integer>> thiDayEdgeStops = edgeStops.get(dayOfWeek);
         for (int edgeId : current.edgeIds.toArray()) {
             //if edge doesn't have cars continue
-            if (!edgeStops.containsKey(edgeId)) {
+            if (!thiDayEdgeStops.containsKey(edgeId)) {
                 continue;
             }
             int stopsCount = 0;
             int travelEndTime = requestTimeInSeconds + travelTime;
-            int index = Collections.binarySearch(edgeStops.get(edgeId), requestTimeInSeconds);
+
+            int index = Collections.binarySearch(thiDayEdgeStops.get(edgeId), requestTimeInSeconds);
             if (index < 0) {
                 int insertionPoint = -(index + 1);
-                List<Integer> testList = edgeStops.get(edgeId);
-                if (insertionPoint == edgeStops.get(edgeId).size()) continue;
-                if ((edgeStops.get(edgeId).get(insertionPoint) - requestTimeInSeconds >= travelTime)) {
+                List<Integer> testList = thiDayEdgeStops.get(edgeId);
+                if (insertionPoint == thiDayEdgeStops.get(edgeId).size()) continue;
+                if ((thiDayEdgeStops.get(edgeId).get(insertionPoint) - requestTimeInSeconds >= travelTime)) {
                     continue;
                 }
                 //calculating bus counts
                 index = insertionPoint;
             }
-            for (int i = index; i < edgeStops.get(edgeId).size(); ++i){
-                if (edgeStops.get(edgeId).get(i) <= travelEndTime){
+            for (int i = index; i < thiDayEdgeStops.get(edgeId).size(); ++i){
+                if (thiDayEdgeStops.get(edgeId).get(i) <= travelEndTime){
                     ++stopsCount;
                 }
                 else {
@@ -1248,7 +1251,7 @@ public class GraphHopper implements GraphHopperAPI {
                 ObjectInputStream o = new ObjectInputStream(new FileInputStream(f));
                 ObjectInputStream o2 = new ObjectInputStream(new FileInputStream(f2));
                 try {
-                    edgeStops = (Map<Integer, List<Integer>>) o.readObject();
+                    edgeStops = (Map<DayOfWeek, Map<Integer, List<Integer>>>) o.readObject();
                     edgeToBaseNodeMap = (HashMap<Integer, double[]>) o2.readObject();
                 } finally {
                     o.close();
@@ -1261,22 +1264,34 @@ public class GraphHopper implements GraphHopperAPI {
             EdgeFilter edgeFilter = DefaultEdgeFilter.allEdges(encoder);
             edgeStops = new HashMap<>();
             edgeToBaseNodeMap = new HashMap<>();
-            for (Map.Entry<Fun.Tuple2<Double, Double>, List<Integer>> entry : stopTimes.entrySet()) {
-                QueryResult queryResult = locationIndex.findClosest(entry.getKey().a, entry.getKey().b, edgeFilter);
-                int edge = queryResult.getClosestEdge().getEdge();
-                List<Integer> value = edgeStops.getOrDefault(edge, new ArrayList<>());
-                value.addAll(entry.getValue());
-                edgeStops.put(edge, value);
-                if (!edgeToBaseNodeMap.containsKey(edge)) {
-                    double[] busStop = new double[2];
-                    busStop[0] = entry.getKey().a;
-                    busStop[1] = entry.getKey().b;
-                    edgeToBaseNodeMap.put(edge, busStop);
+            edgeStops.put(DayOfWeek.MONDAY, new HashMap<>());
+            edgeStops.put(DayOfWeek.TUESDAY, new HashMap<>());
+            edgeStops.put(DayOfWeek.WEDNESDAY, new HashMap<>());
+            edgeStops.put(DayOfWeek.THURSDAY, new HashMap<>());
+            edgeStops.put(DayOfWeek.FRIDAY, new HashMap<>());
+            edgeStops.put(DayOfWeek.SATURDAY, new HashMap<>());
+            edgeStops.put(DayOfWeek.SUNDAY, new HashMap<>());
+            for(DayOfWeek dayOfWeek: stopTimes.keySet()){
+                Map<Fun.Tuple2<Double, Double>, List<Integer>> thiDaysMap = stopTimes.get(dayOfWeek);
+                Map<Integer, List<Integer>> thisDayStops = edgeStops.get(dayOfWeek);
+                for (Map.Entry<Fun.Tuple2<Double, Double>, List<Integer>> entry : thiDaysMap.entrySet()) {
+                    QueryResult queryResult = locationIndex.findClosest(entry.getKey().a, entry.getKey().b, edgeFilter);
+                    int edge = queryResult.getClosestEdge().getEdge();
+                    List<Integer> value = thisDayStops.getOrDefault(edge, new ArrayList<>());
+                    value.addAll(entry.getValue());
+                    thisDayStops.put(edge, value);
+                    if (!edgeToBaseNodeMap.containsKey(edge)) {
+                        double[] busStop = new double[2];
+                        busStop[0] = entry.getKey().a;
+                        busStop[1] = entry.getKey().b;
+                        edgeToBaseNodeMap.put(edge, busStop);
+                    }
+                }
+                for (List<Integer> times : thisDayStops.values()) {
+                    Collections.sort(times);
                 }
             }
-            for (List<Integer> times : edgeStops.values()) {
-                Collections.sort(times);
-            }
+
             //write edge stops to file
             try {
                 ObjectOutputStream o = new ObjectOutputStream(new FileOutputStream(f));
