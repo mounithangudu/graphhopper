@@ -1276,6 +1276,9 @@ public class GraphHopper implements GraphHopperAPI {
                 Map<Integer, List<Integer>> thisDayStops = edgeStops.get(dayOfWeek);
                 for (Map.Entry<Fun.Tuple2<Double, Double>, List<Integer>> entry : thiDaysMap.entrySet()) {
                     QueryResult queryResult = locationIndex.findClosest(entry.getKey().a, entry.getKey().b, edgeFilter);
+                    if(queryResult.getClosestEdge() == null){
+                        continue;
+                    }
                     int edge = queryResult.getClosestEdge().getEdge();
                     List<Integer> value = thisDayStops.getOrDefault(edge, new ArrayList<>());
                     value.addAll(entry.getValue());
